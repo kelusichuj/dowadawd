@@ -5,15 +5,18 @@ const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionFlagsBits, RES
 const { createClient } = require('@supabase/supabase-js');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const fetch = require('node-fetch').default;
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers // ← DODAJ TO!
+    GatewayIntentBits.GuildMembers
   ]
 });
+
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_API_KEY);
+
+// ID roli "klient"
+const CLIENT_ROLE_ID = '1461452356246831236';
 
 // Komendy
 const commands = [
@@ -21,7 +24,9 @@ const commands = [
     .setName('register')
     .setDescription('Rejestruj się za pomocą klucza i roli')
     .addStringOption(option =>
-      option.setName('key').setDescription('Podaj swój klucz').setRequired(true)
+      option.setName('key')
+        .setDescription('Podaj swój klucz')
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -40,11 +45,13 @@ rest.put(Routes.applicationGuildCommands(process.env.DISCORD_APPLICATION_ID, pro
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
+  const userId = interaction.user.id;
+
   // Komenda /register
   if (interaction.commandName === 'register') {
     const key = interaction.options.getString('key');
-    const userId = interaction.user.id;
 
+    // Pobranie klucza z Supabase
     const { data: keyData, error: keyError } = await supabase
       .from('keys')
       .select('*')
@@ -52,54 +59,41 @@ client.on('interactionCreate', async interaction => {
       .single();
 
     if (keyError || !keyData || keyData.used) {
-      await interaction.reply({ content: '❌ Nieprawidłowy lub już użyty klucz!', ephemeral: true });
-      return;
+      return interaction.reply({ content: '❌ Nieprawidłowy lub już użyty klucz!', ephemeral: true });
     }
 
-    const token = process.env.DISCORD_BOT_TOKEN;
-
-    // Pobieranie danych użytkownika
-    const userResponse = await fetch(`https://discord.com/api/v10/users/@me`, {
-      headers: { Authorization: `Bot ${token}` }
-    });
-    const userData = await userResponse.json();
-    console.log('🧑 Dane użytkownika:', userData);
-
-    // Pobieranie danych członka z serwera
-    const memberResponse = await fetch(`https://discord.com/api/v10/guilds/${process.env.DISCORD_GUILD_ID}/members/${userId}`, {
-      headers: { Authorization: `Bot ${token}` }
-    });
-    const memberData = await memberResponse.json();
-    console.log('📄 Dane członka serwera:', memberData);
-
-    if (!memberData.roles || !memberData.roles.includes('1360739779142226130')) {
-      await interaction.reply({ content: '❌ Użytkownik nie ma wymaganej roli "klient".', ephemeral: true });
-      return;
+    // Sprawdzenie czy użytkownik ma rolę "klient"
+    if (!interaction.member.roles.cache.has(CLIENT_ROLE_ID)) {
+      return interaction.reply({ content: '❌ Użytkownik nie ma wymaganej roli "klient".', ephemeral: true });
     }
 
-    const { error: insertError } = await supabase
-      .from('passwords')
-      .insert([{
-        password: crypto.randomBytes(8).toString('hex'),
-        hwid: userData.id,
-        loggedIn: false,
-        userID: userId
-      }]);
+    // Generowanie hasła
+    const password = crypto.randomBytes(16).toString('hex');
+
+    // Dodanie użytkownika do bazy
+    const { error: insertError } = await supabase.from('passwords').insert([{
+      password,
+      hwid: userId,
+      loggedIn: false,
+      userID: userId
+    }]);
 
     if (insertError) {
-      await interaction.reply({ content: '❌ Wystąpił błąd przy dodawaniu do bazy!', ephemeral: true });
-      return;
+      console.error('Błąd dodawania do Supabase:', insertError);
+      return interaction.reply({ content: '❌ Wystąpił błąd przy dodawaniu do bazy!', ephemeral: true });
     }
 
-    await supabase
-      .from('keys')
-      .update({ used: true })
-      .eq('key', key);
+    // Oznaczenie klucza jako użytego
+    const { error: updateError } = await supabase.from('keys').update({ used: true }).eq('key', key);
+    if (updateError) {
+      console.error('Błąd oznaczania klucza jako użytego:', updateError);
+    }
 
+    // Generowanie tokenu JWT
     const jwtToken = jwt.sign({ userId, username: interaction.user.username }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
     await interaction.reply({
-      content: `✅ Rejestracja zakończona pomyślnie! Oto Twój token: \`${jwtToken}\`. Możesz teraz użyć go do zalogowania się na stronie.`,
+      content: `✅ Rejestracja zakończona! Twój token: \`${jwtToken}\``,
       ephemeral: true
     });
   }
@@ -108,13 +102,11 @@ client.on('interactionCreate', async interaction => {
   if (interaction.commandName === 'createkey') {
     const newKey = crypto.randomBytes(8).toString('hex').toUpperCase();
 
-    const { error: keyInsertError } = await supabase
-      .from('keys')
-      .insert([{ key: newKey, used: false }]);
+    const { error: keyInsertError } = await supabase.from('keys').insert([{ key: newKey, used: false }]);
 
     if (keyInsertError) {
-      await interaction.reply({ content: '❌ Wystąpił błąd przy tworzeniu klucza!', ephemeral: true });
-      return;
+      console.error('Błąd tworzenia klucza:', keyInsertError);
+      return interaction.reply({ content: '❌ Wystąpił błąd przy tworzeniu klucza!', ephemeral: true });
     }
 
     await interaction.reply({ content: `✅ Nowy klucz: \`${newKey}\``, ephemeral: true });
