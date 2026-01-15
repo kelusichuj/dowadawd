@@ -1,6 +1,14 @@
 // index.js
 require('dotenv').config();
 
+const DISCORD_BOT_TOKEN = 'MTQ2MTQ1MzE4NzA5MjQ1MTM0OA.GTxFic.leMIuATghtq9ZCFJefo5eI71y9hC8oGWICyAYo';
+const DISCORD_APPLICATION_ID = '1461453187092451348';
+const DISCORD_GUILD_ID = '1461452356246831227';
+const SUPABASE_URL = 'https://zffkhagmwtmqbqkxceun.supabase.co';
+const SUPABASE_API_KEY = 'sb_publishable_y3uJ-a-F2Pn7lzxyuG3lsg_eLbynSN4';
+const JWT_SECRET = 'ff23a596-350e-4720-a586-3c60cd366354';
+
+
 const { Client, GatewayIntentBits, SlashCommandBuilder, PermissionFlagsBits, REST, Routes } = require('discord.js');
 const { createClient } = require('@supabase/supabase-js');
 const crypto = require('crypto');
